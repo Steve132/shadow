@@ -1,4 +1,5 @@
 import hashlib
+from functools import total_ordering
 
 basehashconsts=[0xec9a67f4b868fd5c43b75a061e806ed9dc964a996459c09723f3cfa0fed7a6e6,
 		0xb329552536d44b0e5062ad8c53be55bda3f4f8d716a6110dd6ae689ee7a9c7a8,
@@ -46,6 +47,7 @@ def rkslice(content,l_average_size,l_window_size):
 	k=1 << l_window_size
 	windowchars=cyclebuf(k)
 	chunk=bytearray()
+	
 	for nextb in content:
 		#print((ch,windowchars))
 		front=ord(nextb)
@@ -60,8 +62,9 @@ def rkslice(content,l_average_size,l_window_size):
 	
 		chunk.append(front)
 		if(ch < (1 << (256-l_average_size))):
-			yield chunk,ch
+			yield chunk,int(hashlib.sha256(chunk).hexdigest(),16)
 			chunk=bytearray()
+	yield chunk,int(hashlib.sha256(chunk).hexdigest(),16)
 def alphatest():
 	for y in ['abcdefghijklmnopqrstuvwxyz','qrstuvwxyz']:
 		for c in rkslice(y,1,3):
@@ -79,12 +82,12 @@ def bufferedread(fileobj,bufsize=1<<10):
 #Ghost node:  provides a gethash and getchildren and gettimestamp
 
 class node(object):
-	def __init__(self,name,index):
-		self.index=index
-		self.name=name
+	def __init__(self,path,index):
+		self.path=path
+		self.dirty=index.get('dirty',True)
 	def gethash(self):
-		hio=index['timestamp']
-		if(self.gettimestamp() > hio)
+		hio=index.get('hash',0)
+		if(self.getdirty() or hio==0):
 			h=hashlib.sha256()
 			for c in self.getchildren():
 				ch=c.gethash()
@@ -94,28 +97,64 @@ class node(object):
 		return hio
 	def getchildren(self):
 		pass
-	def gettimestamp(self):
-		hio=index['timestamp']
+	def getdirty(self):
+		d=self.dirty
 		for c in self.getchildren():
-			ts=c.gettimestamp()
-			hio=max(ts,hio)
-		return hio
+			if(d):
+				self.dirty=True
+				return True
+			d=d or c.getdirty()
+		return d
 	
 class directorynode(object):
 	def __init__(self,path):
 		dirname=os.path.split(path)[1]
 		index=load_index(dirname) #last
-		super(directorynode,self).__init__(dirname,index)
-		
+		super(directorynode,self).__init__(path,index)
+		self.children={}
 	def getchildren(self):
+		for l in listdir(path):
+			if(l not in self.children):
+				self.dirty=True
+				
+@total_ordering
+class PathHashTimestamp(object):
+	def __init__(self,path,hash=0,timestamp=0):
+		self.path=path
+		self.hash=hash
+		self.timestamp=timestamp
+	def __lt__(self,other):
+		return (self.path,self.hash,self.timestamp) < (other.path,other.hash,other.timestamp)
+	def __eq__(self,other):
+		return (self.path,self.hash,self.timestamp) == (other.path,other.hash,other.timestamp)
+
 		
+def index_sync(local,remote,path):
+	remote.getpht(path)
+	lc=local.phat_table.get(path,default=PathHashTimestamp(path)
+	if(lc
 		
+def on_recieve_phat(local,remote,phatmsg):
+	lc=local.phat_table.get(phatmsg.path,default=PathHashTimestamp(phatmsg.path))
+	if(lc == phatmsg):
+		remote.send_phat_agree(lc)
+	else:
+		children=local.getchildpaths(lc.path)
+		for c in children:
+			remote.send_phat(local.phat_table[c])  #async here.
 		
+		if(lc.timestamp < phatmsg.timestamp):
+			local.phat_table[phatmsg.path]=phatmsg
+			local.phat_dirty_table[phatmsg.path]=True
+		
+			
+		
+
 if(__name__=='__main__'):
 	import sys
 	for c,ch in rkslice(bufferedread(sys.stdin),16,8):
 		print(''.join([chr(x) for x in c]))
 		print('-'*64)
 
-	
+
 	
